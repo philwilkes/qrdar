@@ -55,7 +55,7 @@ def readMarkersFromTiles(pc,
                          min_intensity=0,
                          template=None,
                          expected_codes=[],
-                         codes='aruco_mip_16h3',
+                         codes_dict='aruco_mip_16h3',
                          save_to=False,
                          print_figure=True, 
                          verbose=True
@@ -82,6 +82,8 @@ def readMarkersFromTiles(pc,
         relative location of stickers on targets
     expected_codes: None or list (default None)
         a list of expected targets
+    codes_dict: str ('aruco_mip_16h3') or n x n x m array
+        defaults to 'aruco_mip_16h3' but another dictionary can be provided
     print_figure: boolean (default True)
         creates images of extracted markers, can be useful for identifying codes that were
         not done so automatically
@@ -95,8 +97,11 @@ def readMarkersFromTiles(pc,
     
     """
 
-    if codes == 'aruco_mip_16h3':
-        codes = _codes()
+    if isinstance(codes_dict, str):
+        codes = load_codes(codes_dict)
+    else:
+        codes = codes_dict
+        
     if len(expected_codes) == 0:
         expected_codes = np.arange(codes.shape[2])
     codes = codes[:, :, expected_codes]
@@ -345,11 +350,6 @@ def _template():
                          [ 0.131318,  0, 0.266446]])
 
     return pd.DataFrame(data=template, columns=['x', 'y', 'z'])
-
-def _codes():
-
-    #this_dir, this_filename = os.path.split(__file__)
-    return np.load(os.path.join(__dir__, 'aruco_mip_16h3_dict.npy'))
 
 def _calculate_score(img, codes, N=6):
     

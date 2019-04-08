@@ -7,7 +7,11 @@ from sklearn.cluster import DBSCAN
 from scipy.spatial import distance_matrix as distance_matrix
 from scipy.optimize import curve_fit
 
+import qrdar
 from qrdar.io.pcd_io import *
+
+# a bit of hack for Python 2.x
+__dir__ = os.path.split(os.path.abspath(qrdar.__file__))[0]
 
 def nn(arr):
 
@@ -92,29 +96,6 @@ def expected_distances():
         
     return np.hstack([0, np.sort(np.array(list(dist)))])
 
-def extract_tile(corners, marker_df, i, tile_centres, prefix):
-    
-    tile_names = []
-    code = pd.DataFrame()
-    
-    marker_df.loc[i, ['x', 'y', 'z']] = corners[['x', 'y', 'z']].mean()
-    
-    # codes may overlap tiles so read in all tiles and append
-    for ix, cnr in corners.iterrows():
-        tile_name = tile_centres.loc[np.where((np.isclose(cnr.y, tile_centres.y, atol=5) & 
-                                               np.isclose(cnr.x, tile_centres.x, atol=5)))].tile.values[0]
-        if tile_name not in tile_names:
-            tile = pcd_io.read_pcd('../rxp2pcd_i/{}_{}.pcd'.format(prefix, tile_name))
-            tile = tile.loc[(tile.x.between(corners.x.min() - .1, corners.x.max() + .1)) & 
-                            (tile.y.between(corners.y.min() - .1, corners.y.max() + .1)) &
-                            (tile.z.between(corners.z.min() - .1, corners.z.max() + .1))]
-            code = code.append(tile)
-            tile_names.append(tile_name)
-            
-    code
-            
-    return code, tile_names
-
 def ensure_square_arr(df, var):
     
     X, Y = np.meshgrid(np.arange(0, 6), np.arange(0, 6))
@@ -164,63 +145,7 @@ def method_2(code):
 
     return imgs
 
-def extract_voxel(corners, codeN, tile_centres, prefix, sticker_centres=None, R=np.identity(4)):
-    
-    if np.array_equal(R, np.identity(4)):
-        R = np.identity(4)
-        R[:3, 3] = -corners[['x', 'y', 'z']].mean()
+def load_codes(dic):
 
-    voxel = pd.DataFrame()
-    tile_names = []
-   
-    # codes may overlap tiles so read in all tiles and append
-    for ix, cnr in corners.iterrows():
-        tile_name_ = tile_centres.loc[np.where((np.isclose(cnr.y, tile_centres.y, atol=10) & 
-                                                np.isclose(cnr.x, tile_centres.x, atol=10)))].tile.values
-        for tile_name in tile_name_:
-            if tile_name in tile_names: continue
-            print '        processing tile:', tile_name
-            tile_names.append(tile_name)
-            tile = pcd_io.read_pcd('../downsample_p/{}_{}.downsample.pcd'.format(prefix, tile_name))
-            tile = tile.loc[(tile.x.between(corners.x.min() - 3, corners.x.max() + 3)) & 
-                            (tile.y.between(corners.y.min() - 3, corners.y.max() + 3)) &
-                            (tile.z.between(corners.z.min() - 2, corners.z.max() + 4))]
-            if len(tile) == 0: continue
-            # apply rotation
-            tile[['x', 'y', 'z']] = apply_rotation(R, tile)
-            # filter
-            tile = tile[(tile.z.between(0, 4)) &
-                        (tile.x.between(-1.5, 1.5)) &
-                        (tile.y.between(-2, 2))]
-            voxel = voxel.append(tile)       
-            
-    print '    running DBSCAN on voxel'
-    dbscan = DBSCAN(eps=.05, min_samples=25).fit(voxel[['x', 'y', 'z']])
-    voxel.loc[:, 'labels_'] = dbscan.labels_
-    voxel = voxel[voxel.labels_ != -1] 
-    voxel[['x', 'y', 'z']] = apply_rotation(np.linalg.inv(R), voxel)
-    
-    v = voxel.groupby('labels_').agg([min, max, 'count'])
-    stem_cluster = []
-    inc = 0
-    
-    while len(stem_cluster) == 0:
-        if sticker_centres is None:
-            stem_cluster = v[(corners.x.min() >= v['x']['min'] - inc) & 
-                             (corners.x.max() <= v['x']['max'] + inc) &
-                             (corners.y.min() >= v['y']['min'] - inc) & 
-                             (corners.y.max() <= v['y']['max'] + inc)].index
-        else: 
-            if inc == 0: sticker_centres[['x', 'y', 'z']] = apply_rotation(np.linalg.inv(R), sticker_centres)
-            stem_cluster = v[(sticker_centres.x.min() >= v['x']['min'] - inc) & 
-                             (sticker_centres.x.max() <= v['x']['max'] + inc) &
-                             (sticker_centres.y.min() >= v['y']['min'] - inc) & 
-                             (sticker_centres.y.max() <= v['y']['max'] + inc)].index
-        inc += .01
-    
-    print '    saving stem: ../clusters/cluster_{}.pcd'.format(codeN)
-    pcd_io.write_pcd(voxel[voxel.labels_.isin(stem_cluster)], '../clusters/cluster_{}.pcd'.format(codeN))    
-#     voxel.to_csv('clusters/clusters_{}.txt'.format(codeN), index=False)
-#     code[['x', 'y', 'z', 'intensity']].to_csv('clusters/code_{}.txt'.format(codeN), index=False)
-
-    return voxel, sticker_centres
+    if dic == 'aruco_mip_16h3':
+        return np.load(os.path.join(__dir__, 'aruco_mip_16h3_dict.npy'))
