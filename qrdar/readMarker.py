@@ -53,7 +53,7 @@ def readMarkersFromTiles(pc,
                          tile_index, 
                          refl_tiles_w_braces,
                          min_intensity=0,
-                         template=None,
+                         markerTemplate=None,
                          expected_codes=[],
                          codes_dict='aruco_mip_16h3',
                          save_to=False,
@@ -78,8 +78,8 @@ def readMarkersFromTiles(pc,
     min_intensity: float or int (default 0)
         minimum intensity for stickers, the lower the number the more likely erroneous points
         will be identified and the longer the runtime will be.
-    template: None or 4 x 3 np.array 
-        relative location of stickers on targets
+    markerTemplate: None or 4 x 3 np.array 
+        relative xyz location of stickers on targets
     expected_codes: None or list (default None)
         a list of expected targets
     codes_dict: str ('aruco_mip_16h3') or n x n x m array
@@ -97,6 +97,7 @@ def readMarkersFromTiles(pc,
     
     """
 
+
     if isinstance(codes_dict, str):
         codes = load_codes(codes_dict)
     else:
@@ -106,8 +107,8 @@ def readMarkersFromTiles(pc,
         expected_codes = np.arange(codes.shape[2])
     codes = codes[:, :, expected_codes]
 
-    if template == None:
-        template = _template()
+    if markerTemplate == None:
+        markerTemplate = template()
 
     # create a database to store output metadata
     marker_df = pd.DataFrame(index=np.arange(len(pc.target_labels_.unique())), 
@@ -115,7 +116,7 @@ def readMarkersFromTiles(pc,
                                       'confidence', 'c0', 'c1', 'c2', 'c3'])
 
     for i in np.sort(pc.target_labels_.unique()):
-        
+
         if verbose: print 'processing targets:', i
             
         # locate stickers
@@ -144,9 +145,9 @@ def readMarkersFromTiles(pc,
         
         # identify stickers
         if verbose: print '    locating stickers'
-        sticker_centres, R, rmse = identify_stickers(code, template, min_intensity=min_intensity)
+        sticker_centres, R, rmse = identify_stickers(code, markerTemplate, min_intensity=min_intensity)
         if len(sticker_centres) == 0:
-            if verbose: print "    could not find 3 bright targets that match the template"
+            if verbose: print "    could not find 3 bright targets that match the markerTemplate"
             if print_figure: 
                 code.sort_values('y', inplace=True)
                 ax1.scatter(code.x, code.z, c=code.intensity, edgecolor='none', s=1)
@@ -169,10 +170,11 @@ def readMarkersFromTiles(pc,
         if print_figure:
             code.sort_values('y', inplace=True, ascending=False)
             ax1.scatter(code.x, code.z, c=code.intensity, edgecolor='none', s=1, cmap=plt.cm.Spectral_r)
-            ax1.scatter(template.x, template.z, s=30, edgecolor='b', facecolor='none')
+            ax1.scatter(markerTemplate.x, markerTemplate.z, s=30, edgecolor='b', facecolor='none')
             ax1.scatter(sticker_centres.x, sticker_centres.z, s=30, edgecolor='r', facecolor='none')
     
         # extracting fiducial marker
+        # TODO: make this a function
         if verbose: print '    extracting fiducial marker'
         code_ = code.copy()
         code = code.loc[(code.x.between(-.01, .18)) & 
@@ -191,22 +193,22 @@ def readMarkersFromTiles(pc,
         code.sort_values('intensity', inplace=True)
         if print_figure: ax2.scatter(code.x, code.z, c=code.intensity, edgecolor='none', s=10, cmap=plt.cm.Greys_r, vmin=-10, vmax=-5)
     
-        # matrix for holding estimated aruco and confidence 
+        # matrix for holding estimated codes and confidence 
         scores = np.zeros((3, 2))
 
         # method 1
-        img_1 = _method_1(code)
-        scores[0, :] = _calculate_score(img_1, codes)
+        img_1 = method_1(code)
+        scores[0, :] = calculate_score(img_1, codes)
         if print_figure: ax3.imshow(np.rot90(img_1, 1), cmap=plt.cm.Greys_r, interpolation='none')
         
         # method 2 .4 threshold
-        img_2 = _method_2(code, .4)
-        scores[1, :] = _calculate_score(img_2, codes)
+        img_2 = method_2(code, .4)
+        scores[1, :] = calculate_score(img_2, codes)
         if print_figure: ax4.imshow(np.rot90(img_2, 1), cmap=plt.cm.Greys_r, interpolation='none')
             
         # method 2 .4 threshold
-        img_3 = _method_2(code, .6)
-        scores[2, :] = _calculate_score(img_3, codes)
+        img_3 = method_2(code, .6)
+        scores[2, :] = calculate_score(img_3, codes)
         if print_figure: ax4.imshow(np.rot90(img_3, 1), cmap=plt.cm.Greys_r, interpolation='none') 
 
         if print_figure:
@@ -250,7 +252,7 @@ def extract_tile(corners, tile_centres, filepath):
              
     return code
         
-def identify_stickers(code, template, min_intensity=0):
+def identify_stickers(code, markerTemplate, min_intensity=0):
     
     stickers = pd.DataFrame(columns=['labels_'])
     all_R = [] # 
@@ -288,7 +290,7 @@ def identify_stickers(code, template, min_intensity=0):
                     all_sticker_centres = stickers.groupby('labels_').mean()
                     dist = distance_matrix(all_sticker_centres[['x', 'y', 'z']], all_sticker_centres[['x', 'y', 'z']])
                     dist_bool = np.array([False if v == 0 
-                                          else True if np.any(np.isclose(v, expected_distances(), atol=.01)) 
+                                          else True if np.any(np.isclose(v, expected_distances(markerTemplate.values), atol=.01)) 
                                           else False for v in dist.flatten()]).reshape(dist.shape)
                     all_sticker_centres.loc[:, 'num_nbrs'] = [len(np.where(r == True)[0]) for r in dist_bool]
                     all_sticker_centres = all_sticker_centres[all_sticker_centres.num_nbrs > 1]
@@ -302,12 +304,12 @@ def identify_stickers(code, template, min_intensity=0):
 
                     for combo in combinations:
 
-                        for t_combo in itertools.permutations(template.index, N):
+                        for t_combo in itertools.permutations(markerTemplate.index, N):
 
                             test = all_sticker_centres.loc[list(combo)].copy()
                             test = test.sort_values(['x', 'y', 'z']).reset_index()
                             if set(test.index) in exclude: continue
-                            t_pd = template.loc[list(t_combo)]
+                            t_pd = markerTemplate.loc[list(t_combo)]
 
                             if .2 < test.z.ptp() < .4:
 
@@ -341,70 +343,3 @@ def identify_stickers(code, template, min_intensity=0):
         sticker_centres = all_sticker_centres.loc[list(all_combo[ix])]
 
     return sticker_centres, R, rmse
-        
-def _template():
-
-    template = np.array([[ 0.      ,  0, 0.      ],
-                         [ 0.182118,  0, 0.0381  ],
-                         [ 0.      ,  0, 0.266446],
-                         [ 0.131318,  0, 0.266446]])
-
-    return pd.DataFrame(data=template, columns=['x', 'y', 'z'])
-
-def _calculate_score(img, codes, N=6):
-    
-    size_of_code = float(N**2)
-    size_of_inner = float((N-2)**2)
-    size_diff = size_of_code - size_of_inner
-
-    score = np.array([(np.rot90(img) == codes[:, :, j]).astype(int).sum() for j in range(codes.shape[2])])
-    code = int(np.where(score == score.max())[0][0])
-    confidence = ((size_of_inner - (size_of_inner - (score.max() - size_diff))) / size_of_inner)
-
-    return code, confidence
-
-def _method_1(code):
-
-    """
-    method 1 calculates the reflectance threshold between white and black
-    areas of the target and uses this to create a binary filter
-    """
-    
-    code.loc[:, 'I_mean'] = code.groupby(['xx', 'zz']).intensity.transform(np.mean)
-
-    C = 0
-    for p in np.arange(5, 50, 5):
-        C = calculate_cutoff(code.I_mean, p)
-        if code.I_mean.min() < C < code.I_mean.max():
-            break
-
-    code.loc[:, 'bw1'] = np.where(code.I_mean < C, 0, 1)
-    img_1 = ensure_square_arr(code, 'bw1')
-
-    return img_1
-
-
-def _method_2(code, threshold):
-    
-    """
-    method 2 calculate the number of returns on a per grid square
-    basis and determines how many are above a threshold creating
-    a binary image e.g. if 70% had a reflectance value >7 db then
-    this would be a white square
-    
-    RIEGL specific: todo expose intensity threshold
-    """
-
-    code.loc[:, 'N'] = code.groupby(['xx', 'zz']).x.transform(np.size)
-    LN = code[(code.intensity < -7)].groupby(['xx', 'zz']).x.size().reset_index(name='LN')
-    code = pd.merge(LN, code, on=['xx', 'zz'], how='outer')
-    code.loc[:, 'P'] = code.LN / code.N
-
-    code.loc[:, 'bw2'] = code.P.apply(lambda p: 0 if p > threshold else 1)
-    img = ensure_square_arr(code, 'bw2')
-
-    return img
-
-
-    
-        

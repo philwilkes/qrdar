@@ -83,15 +83,12 @@ def calculate_cutoff(data, p):
     
     return np.mean([params[0], params[3]])
 
-def expected_distances():
+def expected_distances(markerTemplate):
+    
     # distances between points
-    template = np.array([[ 0.      ,  0, 0.      ],
-                         [ 0.182118,  0, 0.0381  ],
-                         [ 0.      ,  0, 0.266446],
-                         [ 0.131318,  0, 0.266446]])
     
     dist = set()
-    for b in itertools.permutations(template, 2):
+    for b in itertools.combinations(markerTemplate, 2):
         dist.add(np.around(np.linalg.norm(b[0] - b[1]), 2))
         
     return np.hstack([0, np.sort(np.array(list(dist)))])
@@ -149,3 +146,69 @@ def load_codes(dic):
 
     if dic == 'aruco_mip_16h3':
         return np.load(os.path.join(__dir__, 'aruco_mip_16h3_dict.npy'))
+    
+def template():
+
+    markerTemplate = np.array([[ 0.      ,  0, 0.      ],
+                               [ 0.182118,  0, 0.0381  ],
+                               [ 0.      ,  0, 0.266446],
+                               [ 0.131318,  0, 0.266446]])
+
+    return pd.DataFrame(data=markerTemplate, columns=['x', 'y', 'z'])
+
+def calculate_score(img, codes, N=6):
+    
+    size_of_code = float(N**2)
+    size_of_inner = float((N-2)**2)
+    size_diff = size_of_code - size_of_inner
+
+    score = np.array([(np.rot90(img) == codes[:, :, j]).astype(int).sum() for j in range(codes.shape[2])])
+    code = int(np.where(score == score.max())[0][0])
+    confidence = ((size_of_inner - (size_of_inner - (score.max() - size_diff))) / size_of_inner)
+
+    return code, confidence
+
+def method_1(code):
+
+    """
+    method 1 calculates the reflectance threshold between white and black
+    areas of the target and uses this to create a binary filter
+    """
+    
+    code.loc[:, 'I_mean'] = code.groupby(['xx', 'zz']).intensity.transform(np.mean)
+
+
+    for p in np.arange(5, 50, 5):
+        try:
+            C = calculate_cutoff(code.I_mean, p)
+            if code.I_mean.min() < C < code.I_mean.max():
+                break
+        except:
+            C = 0 # required if optimal parameters are not found
+
+    code.loc[:, 'bw1'] = np.where(code.I_mean < C, 0, 1)
+    img_1 = ensure_square_arr(code, 'bw1')
+
+    return img_1
+
+
+def method_2(code, threshold):
+    
+    """
+    method 2 calculate the number of returns on a per grid square
+    basis and determines how many are above a threshold creating
+    a binary image e.g. if 70% had a reflectance value >7 db then
+    this would be a white square
+    
+    RIEGL specific: todo expose intensity threshold
+    """
+
+    code.loc[:, 'N'] = code.groupby(['xx', 'zz']).x.transform(np.size)
+    LN = code[(code.intensity < -7)].groupby(['xx', 'zz']).x.size().reset_index(name='LN')
+    code = pd.merge(LN, code, on=['xx', 'zz'], how='outer')
+    code.loc[:, 'P'] = code.LN / code.N
+
+    code.loc[:, 'bw2'] = code.P.apply(lambda p: 0 if p > threshold else 1)
+    img = ensure_square_arr(code, 'bw2')
+
+    return img
