@@ -66,9 +66,11 @@ def rigid_transform_3D(A, B):
     return np.dot(N, M)
 
 def gauss(x, mu, sigma, A):
+    
     return A*np.exp(-(x-mu)**2/2/sigma**2)
 
 def bimodal(x,mu1,sigma1,A1,mu2,sigma2,A2):
+    
     return gauss(x,mu1,sigma1,A1)+gauss(x,mu2,sigma2,A2)
 
 def calculate_cutoff(data, p):
@@ -104,43 +106,6 @@ def ensure_square_arr(df, var):
     img = img[var].values.reshape(6, 6)
     img = img * np.pad(np.ones(np.array(img.shape) - 2), 1, 'constant') # force border to be black
     return img
-
-def method_1(code):
-    
-    print '    running method 1'
-    code.loc[:, 'I_mean'] = code.groupby(['xx', 'zz']).intensity.transform(np.mean)
-
-    C = 0
-    for p in np.arange(5, 50, 5):
-        #try:
-            C = calculate_cutoff(code.I_mean, p)
-            if code.I_mean.min() < C < code.I_mean.max():
-                break
-        #except:
-        #    pass
-
-    code.loc[:, 'bw1'] = np.where(code.I_mean < C, 0, 1)
-    img_1 = ensure_square_arr(code, 'bw1')
-    return img_1
-    #ax.imshow(np.rot90(img_1, 1), cmap=plt.cm.Greys_r, interpolation='none')
-
-def method_2(code):
-    
-    print '    running method 2'
-    code.loc[:, 'N'] = code.groupby(['xx', 'zz']).x.transform(size)
-    LN = code[(code.intensity < -7) ].groupby(['xx', 'zz']).x.size().reset_index(name='LN')
-    code = pd.merge(LN, code, on=['xx', 'zz'], how='outer')
-    code.loc[:, 'P'] = code.LN / code.N
-
-    imgs = []
-    
-    for ax, threshold in zip([ax4, ax5], [.4, .6]):
-
-        code.loc[:, 'bw2'] = code.P.apply(lambda p: 0 if p > threshold else 1)
-        img_2 = ensure_square_arr(code, 'bw2')
-        imgs.append(img_2)
-
-    return imgs
 
 def load_codes(dic):
 
