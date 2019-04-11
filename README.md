@@ -1,4 +1,4 @@
-# QRdar
+# qrDAR
 
 This is a repository for a method of using fiducial markers (akin to QR codes) to identify tagged features in laser scans.
 
