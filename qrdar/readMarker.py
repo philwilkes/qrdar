@@ -11,7 +11,46 @@ from qrdar.io.ply_io import *
 # a bit of hack for Python 2.x
 __dir__ = os.path.split(os.path.abspath(qrdar.__file__))[0]
 
-def locateTargets(pc, verbose=False):
+def calculate_R(corners, template):
+
+    stop = False
+    
+    for N in [4, 3]:
+        
+        if stop: break
+        combinations = [c for c in itertools.combinations(corners.index, N)]
+        all_R = []
+        all_rmse = []
+        all_tcombo = []
+        all_combo = []
+        exclude = []
+
+        for combo in combinations:
+
+            for t_combo in itertools.permutations(template.index, N):
+
+                test = corners.loc[list(combo)].copy()
+                test = test.sort_values(['x', 'y', 'z']).reset_index()
+                if set(test.index) in exclude: continue
+                t_pd = template.loc[list(t_combo)]
+
+                all_combo.append(combo)
+                R = rigid_transform_3D(test[['x', 'y', 'z']].values, t_pd) 
+                all_R.append(R)
+                test = apply_rotation(R, test)
+
+                RMSE = np.sqrt((np.linalg.norm(test[['x', 'y', 'z']].values - t_pd.values, axis=1)**2).mean())
+                all_rmse.append(RMSE)
+
+                if np.any(np.array(all_rmse) < .015):
+                    stop = True
+                    break
+            
+    idx = np.where(np.array(all_rmse) == np.array(all_rmse).min())[0][0]
+    
+    return list(all_combo[idx]), all_R[idx], all_rmse[idx]
+
+def locateTargets(pc, markerTemplate=None, min_intensity=0, rmse_threshold=.15, verbose=False):
 
     """ 
     Groups stickers into potential targets, this is required for
@@ -32,6 +71,9 @@ def locateTargets(pc, verbose=False):
     
     if 'target_labels_' in pc.columns:
         del pc['target_labels_']
+        
+    if markerTemplate == None:
+        markerTemplate = template()
     
     # cluster pc into potential dots
     potential_dots = pc.groupby('sticker_labels_').mean().reset_index()
@@ -40,6 +82,26 @@ def locateTargets(pc, verbose=False):
     dbscan = DBSCAN(eps=.4, min_samples=3).fit(potential_dots[['x', 'y', 'z']])
     potential_dots.loc[:, 'target_labels_'] = dbscan.labels_
     potential_dots = potential_dots[potential_dots.target_labels_ != -1] 
+    
+    # check if targets are too close
+    while np.any(potential_dots.target_labels_.value_counts().values > 4):
+        for labels in potential_dots.target_labels_.unique():
+            bright_spots_tmp = potential_dots[potential_dots.target_labels_ == labels]
+            if len(bright_spots_tmp) > 4:
+                print 'filtering points matching label {} with {} points'.format(labels, len(bright_spots_tmp))
+                idx, R, rmse = calculate_R(bright_spots_tmp, markerTemplate)
+                potential_dots.loc[idx, 'target_labels_'] = potential_dots.target_labels_.max() + 1
+    
+    # remove any stickers that are not associated wth at least 2 others
+    vc = potential_dots.target_labels_.value_counts()
+    potential_dots = potential_dots[potential_dots.target_labels_.isin(vc[vc >= 3].index)]
+    
+    # and double check (remove any with large error that have been left over)
+    for labels in potential_dots.target_labels_.unique():
+        bright_spots_tmp = potential_dots[potential_dots.target_labels_ == labels]
+        idx, R, rmse = calculate_R(bright_spots_tmp, markerTemplate)
+        if rmse > .02 and .1 < bright_spots_tmp.z.ptp() < .4:
+            potential_dots = potential_dots.loc[potential_dots.target_labels_ != labels]
     
     # find code centres
     code_centres = potential_dots.groupby('target_labels_')[['x', 'y', 'z']].mean().reset_index()
@@ -58,6 +120,7 @@ def readMarkersFromTiles(pc,
                          codes_dict='aruco_mip_16h3',
                          save_to=False,
                          print_figure=True, 
+                         sticker_error =.015,
                          verbose=True
                          ):
 
@@ -87,6 +150,8 @@ def readMarkersFromTiles(pc,
     print_figure: boolean (default True)
         creates images of extracted markers, can be useful for identifying codes that were
         not done so automatically
+    sticker_error: float (default .005)
+        accpetable rmse for a target stickers to match the template
     verbose: boolean (default True)
         print something
     
@@ -115,7 +180,7 @@ def readMarkersFromTiles(pc,
                              columns=['x', 'y', 'z', 'rmse', 'code', 
                                       'confidence', 'c0', 'c1', 'c2', 'c3'])
 
-    for i in np.sort(pc.target_labels_.unique()):
+    for i in np.sort(pc.target_labels_.unique().astype(int)):
 
         if verbose: print 'processing targets:', i
             
@@ -136,6 +201,7 @@ def readMarkersFromTiles(pc,
         # create axis for plotting
         if print_figure:
             f = plt.figure(figsize=(10, 5))
+            f.text(.01, .05, 'cluster: {}'.format(i), ha='left')
             ax1 = f.add_axes([0, 0, .32, 1])
             ax2 = f.add_axes([.33, .5, .32, .49])
             ax3 = f.add_axes([.33, 0, .32, .49])
@@ -145,13 +211,9 @@ def readMarkersFromTiles(pc,
         
         # identify stickers
         if verbose: print '    locating stickers'
-        sticker_centres, R, rmse = identify_stickers(code, markerTemplate, min_intensity=min_intensity)
-        if len(sticker_centres) == 0:
-            if verbose: print "    could not find 3 bright targets that match the markerTemplate"
-            if print_figure: 
-                code.sort_values('y', inplace=True)
-                ax1.scatter(code.x, code.z, c=code.intensity, edgecolor='none', s=1)
-            continue    
+        idx, R, rmse = calculate_R(corners, markerTemplate)
+        sticker_centres = corners.loc[idx]
+        #sticker_centres, R, rmse = identify_stickers(code, markerTemplate, min_intensity, sticker_error)
         marker_df.loc[i, 'rmse'] = rmse
         marker_df.at[i, 'c0'] = tuple(sticker_centres[['x', 'y', 'z']].loc[sticker_centres.index[0]].round(2))  
         marker_df.at[i, 'c1'] = tuple(sticker_centres[['x', 'y', 'z']].loc[sticker_centres.index[1]].round(2))  
@@ -159,7 +221,7 @@ def readMarkersFromTiles(pc,
         if len(sticker_centres) == 4:
             marker_df.at[i, 'c3'] = tuple(sticker_centres[['x', 'y', 'z']].loc[sticker_centres.index[3]].round(2))  
 
-        if verbose: print '    RMSE:', rmse
+        if verbose: print '    sticker rmse:', rmse
     
         # applying rotation matrix
         if verbose: print '    applying rotation matrix'
@@ -172,6 +234,15 @@ def readMarkersFromTiles(pc,
             ax1.scatter(code.x, code.z, c=code.intensity, edgecolor='none', s=1, cmap=plt.cm.Spectral_r)
             ax1.scatter(markerTemplate.x, markerTemplate.z, s=30, edgecolor='b', facecolor='none')
             ax1.scatter(sticker_centres.x, sticker_centres.z, s=30, edgecolor='r', facecolor='none')
+            
+        if len(sticker_centres) == 0 or rmse > sticker_error:
+            if verbose: print "    could not find 3 bright targets that match the markerTemplate"
+            if print_figure: 
+                code.sort_values('y', inplace=True)
+                ax1.scatter(code.x, code.z, c=code.intensity, edgecolor='none', s=1)
+                if verbose: print '    saving images:', '{}.png'.format(i)
+                f.savefig('{}.png'.format(i))
+            continue    
     
         # extracting fiducial marker
         # TODO: make this a function
@@ -197,38 +268,50 @@ def readMarkersFromTiles(pc,
         scores = np.zeros((3, 2))
 
         # method 1
-        img_1 = method_1(code)
-        scores[0, :] = calculate_score(img_1, codes)
-        if print_figure: ax3.imshow(np.rot90(img_1, 1), cmap=plt.cm.Greys_r, interpolation='none')
+        try:
+            img_1 = method_1(code)
+            scores[0, :] = calculate_score(img_1, codes)
+            if print_figure: ax3.imshow(np.rot90(img_1, 1), cmap=plt.cm.Greys_r, interpolation='none')
+        except Exception as err:
+            if verbose: print '    {}'.format(err)      
         
         # method 2 .4 threshold
-        img_2 = method_2(code, .4)
-        scores[1, :] = calculate_score(img_2, codes)
-        if print_figure: ax4.imshow(np.rot90(img_2, 1), cmap=plt.cm.Greys_r, interpolation='none')
+        try:
+            img_2 = method_2(code, .4)
+            scores[1, :] = calculate_score(img_2, codes)
+            if print_figure: ax4.imshow(np.rot90(img_2, 1), cmap=plt.cm.Greys_r, interpolation='none')
+        except Exception as err:
+            if verbose: print '    {}'.format(err)
             
-        # method 2 .4 threshold
-        img_3 = method_2(code, .6)
-        scores[2, :] = calculate_score(img_3, codes)
-        if print_figure: ax4.imshow(np.rot90(img_3, 1), cmap=plt.cm.Greys_r, interpolation='none') 
+        # method 2 .6 threshold
+        try:
+            img_3 = method_2(code, .6)
+            scores[2, :] = calculate_score(img_3, codes)
+            if print_figure: ax5.imshow(np.rot90(img_3, 1), cmap=plt.cm.Greys_r, interpolation='none') 
+        except Exception as err:
+            if verbose: print '    {}'.format(err)
 
-        if print_figure:
-            if verbose: print '    saving images:', '{}.png'.format(i)
-            f.savefig('{}.png'.format(i))
-    
-        code = np.unique(scores[np.where(scores[:, 1] == scores[:, 1].max())][:, 0])
-        if len(code) > 1:
-            if verbose: print '    more than one code identified with same confidence:', code
+        number = np.unique(scores[np.where(scores[:, 1] == scores[:, 1].max())][:, 0])
+        if len(number) > 1:
+            if verbose: print '    more than one code identified with same confidence:', number
             if verbose: print '    value of -1 set for code in marker_df'
             if verbose: print '    writing these to {}'.format(os.path.join(os.getcwd(), str(i) + '.log'))
+            read_code = [int(expected_codes[int(n)]) for n in number]
+            confidence = scores[np.where(scores[:, 1] == scores[:, 1].max())][0, 1]
             with open(os.path.join(os.getcwd(), str(i) + '.log'), 'w') as fh:
-                fh.write(' '.join([str(n) for n in code]))
-            number, confidence = scores[np.where(scores[:, 1] == scores[:, 1].max())][0]
+                fh.write(' '.join([str(n) for n in number]))
+                fh.write(' {}'.format(confidence))
         else:
             number, confidence = scores[np.where(scores[:, 1] == scores[:, 1].max())][0, :]
-        number = expected_codes[int(number)]
-        if verbose: print '    tag identified (ci): {} ({})'.format(int(number), confidence)
-            
-        marker_df.loc[i, 'code'] = int(number)
+            read_code = int(expected_codes[int(number)])
+        if verbose: print '    tag identified (ci): {} ({})'.format(read_code, confidence)
+
+        if print_figure:
+            f.text(.01, .01, 'code: {} ({})'.format(read_code, confidence))
+            f.savefig('{}.png'.format(i))
+            if verbose: print '    saved image to:', '{}.png'.format(i)
+
+        marker_df.loc[i, 'code'] = read_code
         marker_df.loc[i, 'confidence'] = confidence
         
     return marker_df
@@ -252,7 +335,7 @@ def extract_tile(corners, tile_centres, filepath):
              
     return code
         
-def identify_stickers(code, markerTemplate, min_intensity=0):
+def identify_stickers(code, markerTemplate, min_intensity, sticker_error):
     
     stickers = pd.DataFrame(columns=['labels_'])
     all_R = [] # 
@@ -290,7 +373,7 @@ def identify_stickers(code, markerTemplate, min_intensity=0):
                     all_sticker_centres = stickers.groupby('labels_').mean()
                     dist = distance_matrix(all_sticker_centres[['x', 'y', 'z']], all_sticker_centres[['x', 'y', 'z']])
                     dist_bool = np.array([False if v == 0 
-                                          else True if np.any(np.isclose(v, expected_distances(markerTemplate.values), atol=.01)) 
+                                          else True if np.any(np.isclose(v, expected_distances(markerTemplate.values), atol=.015)) 
                                           else False for v in dist.flatten()]).reshape(dist.shape)
                     all_sticker_centres.loc[:, 'num_nbrs'] = [len(np.where(r == True)[0]) for r in dist_bool]
                     all_sticker_centres = all_sticker_centres[all_sticker_centres.num_nbrs > 1]
@@ -326,7 +409,7 @@ def identify_stickers(code, markerTemplate, min_intensity=0):
                             else:
                                 exclude.append(set(test.index))
 
-                        if np.any(np.array(all_rmse) < .015):
+                        if np.any(np.array(all_rmse) < sticker_error):
 
                             stop = True
                             break
