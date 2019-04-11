@@ -20,4 +20,4 @@ There are no specific requirements for scanning codes as they should be adequate
 been tested using angular resolutions of <= 0.04 where scans were done on a regular 10 m grid.
 
 ### Post processing
-Post processing is described in the <a href=https://github.com/philwilkes/qrdar/blob/master/find_markers.ipynb>find_merkers.ipynb</a>. This includes an option to extract the desired feature.
+Post processing is described in the <a href=https://github.com/philwilkes/qrdar/blob/master/find_markers.ipynb>find_markers.ipynb</a>. This includes an option to extract the desired feature.
