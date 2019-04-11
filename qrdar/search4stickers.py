@@ -67,13 +67,12 @@ def find(pc, W=50, rgb=False, verbose=False):
     target_centre = pd.DataFrame()
     
     for tx, ty in pc.groupby(['xx', 'yy']).size().index:
-            
-        if verbose: print 'processing grid {} {} with length {}'.format(tx, ty, len(sq))
         
         sq = pc[(pc.xx == tx) & (pc.yy == ty)]
+        if verbose: print 'processing grid {} {} with length {}'.format(tx, ty, len(sq))
         
         if len(sq) >= 5: # if tiles contain too few points, skip them        
-            dbscan = DBSCAN(eps=.025, min_samples=5).fit(sq[['x', 'y', 'z']])
+            dbscan = DBSCAN(eps=.025, min_samples=3).fit(sq[['x', 'y', 'z']])
             pc.loc[sq.index, 'sticker_labels_'] = dbscan.labels_ + label_max
             label_max = pc.sticker_labels_.max() + 1 # iterative labelling hence 
         
