@@ -20,6 +20,45 @@ def nn(arr):
     
     return np.unique(distances[:, 1])
 
+def calculate_R(corners, template):
+
+    stop = False
+    
+    for N in [4, 3]:
+        
+        if stop: break
+        combinations = [c for c in itertools.combinations(corners.index, N)]
+        all_R = []
+        all_rmse = []
+        all_tcombo = []
+        all_combo = []
+        exclude = []
+
+        for combo in combinations:
+
+            for t_combo in itertools.permutations(template.index, N):
+
+                test = corners.loc[list(combo)].copy()
+                test = test.sort_values(['x', 'y', 'z']).reset_index()
+                if set(test.index) in exclude: continue
+                t_pd = template.loc[list(t_combo)]
+
+                all_combo.append(combo)
+                R = rigid_transform_3D(test[['x', 'y', 'z']].values, t_pd) 
+                all_R.append(R)
+                test = apply_rotation(R, test)
+
+                RMSE = np.sqrt((np.linalg.norm(test[['x', 'y', 'z']].values - t_pd.values, axis=1)**2).mean())
+                all_rmse.append(RMSE)
+
+                if np.any(np.array(all_rmse) < .015):
+                    stop = True
+                    break
+            
+    idx = np.where(np.array(all_rmse) == np.array(all_rmse).min())[0][0]
+    
+    return list(all_combo[idx]), all_R[idx], all_rmse[idx]
+
 def apply_rotation(M, df):
     
     if 'a' not in df.columns:
