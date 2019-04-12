@@ -2,7 +2,7 @@
 
 This is a method for using fiducial markers (akin to QR codes) to identify the location of tagged features in laser scans.
 
-<p align="center"><img src=http://www2.geog.ucl.ac.uk/~ucfaptv/IMG_20180704_095428.jpg width=400></p>
+<p align="center"><img src=http://www2.geog.ucl.ac.uk/~ucfaptv/IMG_20180710_130653.jpg width=400></p>
 
 The examples here use <a href=https://www.uco.es/investiga/grupos/ava/node/26>AruCo</a> markers attachted to trees, these are then scanned as part of normal scanning and their location and connected point cloud are extracted in post-processing. 
 
