@@ -273,7 +273,8 @@ def fromTiles(pc,
 
     # create a database to store output metadata
     marker_df = pd.DataFrame(index=pc.target_labels_.unique(), 
-                             columns=['x', 'y', 'z', 'rmse', 'code', 'confidence', 'c0', 'c1', 'c2', 'c3'])
+                             columns=['x', 'y', 'z', 'rmse', 'code', 
+                                      'confidence', 'c0', 'c1', 'c2', 'c3'])
 
     for i in np.sort(pc.target_labels_.unique().astype(int)):
 
@@ -388,10 +389,10 @@ def fromTiles(pc,
 
         number = np.unique(scores[np.where(scores[:, 1] == scores[:, 1].max())][:, 0])
         if len(number) > 1:
-            if verbose: print '    more than one code identified with same confidence:', number
+            read_code = [int(expected_codes[int(n)]) for n in number]
+            if verbose: print '    more than one code identified with same confidence:', read_code
             if verbose: print '    value of -1 set for code in marker_df'
             if verbose: print '    writing these to {}'.format(os.path.join(os.getcwd(), str(i) + '.log'))
-            read_code = [int(expected_codes[int(n)]) for n in number]
             confidence = scores[np.where(scores[:, 1] == scores[:, 1].max())][0, 1]
             with open(os.path.join(os.getcwd(), str(i) + '.log'), 'w') as fh:
                 fh.write(' '.join([str(n) for n in number]))
