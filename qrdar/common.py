@@ -20,44 +20,52 @@ def nn(arr):
     
     return np.unique(distances[:, 1])
 
-def calculate_R(corners, template):
+def distanceFilter(corners, template):
+    
+    tdM = expected_distances(template)
+    
+    # remove points that are not ~ correct distance from at least
+    # 2 others according to template
+    dist = distance_matrix(corners[['x', 'y', 'z']], corners[['x', 'y', 'z']])
+    dist_bool = np.array([False if v == 0 
+                          else True if np.any(np.isclose(v, tdM, atol=.02)) 
+                          else False for v in dist.flatten()]).reshape(dist.shape)
+    corners.loc[:, 'num_nbrs'] = [len(np.where(r == True)[0]) for r in dist_bool]
+    remove_idx = corners[corners.num_nbrs <= 1].index
+    
+    return remove_idx
 
-    stop = False
+def calculate_R(corners, template):
+    
+    tdM = expected_distances(template)
     
     for N in [4, 3]:
         
-        if stop: break
         combinations = [c for c in itertools.combinations(corners.index, N)]
-        all_R = []
-        all_rmse = []
-        all_tcombo = []
-        all_combo = []
-        exclude = []
 
         for combo in combinations:
+            
+            test = corners.loc[list(combo)].copy()
+            test = test.sort_values(['x', 'y', 'z']).reset_index()
+            
+            # skip set of points where the seperation is too large
+            dM = distance_matrix(test[['x', 'y', 'z']], test[['x', 'y', 'z']])
+            dM = np.ma.masked_equal(dM, 0)
+            if np.any(dM > tdM.max() * 1.05) or np.any(dM < tdM.min() * .95): continue
 
             for t_combo in itertools.permutations(template.index, N):
-
-                test = corners.loc[list(combo)].copy()
-                test = test.sort_values(['x', 'y', 'z']).reset_index()
-                if set(test.index) in exclude: continue
+                
                 t_pd = template.loc[list(t_combo)]
 
-                all_combo.append(combo)
                 R = rigid_transform_3D(test[['x', 'y', 'z']].values, t_pd) 
-                all_R.append(R)
-                test = apply_rotation(R, test)
+                testR = apply_rotation(R, test.copy())
 
-                RMSE = np.sqrt((np.linalg.norm(test[['x', 'y', 'z']].values - t_pd.values, axis=1)**2).mean())
-                all_rmse.append(RMSE)
+                rmse = np.sqrt((np.linalg.norm(testR[['x', 'y', 'z']].values - t_pd.values, axis=1)**2).mean())
+                
+                if rmse < .01:
+                    return list(combo), R, rmse
 
-                if np.any(np.array(all_rmse) < .015):
-                    stop = True
-                    break
-            
-    idx = np.where(np.array(all_rmse) == np.array(all_rmse).min())[0][0]
-    
-    return list(all_combo[idx]), all_R[idx], all_rmse[idx]
+    return [], [], np.nan
 
 def apply_rotation(M, df):
     
@@ -124,15 +132,12 @@ def calculate_cutoff(data, p):
     
     return np.mean([params[0], params[3]])
 
-def expected_distances(markerTemplate):
+def expected_distances(template):
     
     # distances between points
-    
-    dist = set()
-    for b in itertools.combinations(markerTemplate, 2):
-        dist.add(np.around(np.linalg.norm(b[0] - b[1]), 2))
-        
-    return np.hstack([0, np.sort(np.array(list(dist)))])
+    tdM = distance_matrix(template[['x', 'y', 'z']], template[['x', 'y', 'z']])
+    tdM = np.ma.masked_equal(tdM, 0)
+    return np.unique(tdM)
 
 def ensure_square_arr(df, var):
     
@@ -154,9 +159,9 @@ def load_codes(dic):
 def template():
 
     markerTemplate = np.array([[ 0.      ,  0, 0.      ],
-                               [ 0.182118,  0, 0.0381  ],
                                [ 0.      ,  0, 0.266446],
-                               [ 0.131318,  0, 0.266446]])
+                               [ 0.131318,  0, 0.266446],
+                               [ 0.182118,  0, 0.0381  ]])
 
     return pd.DataFrame(data=markerTemplate, columns=['x', 'y', 'z'])
 
