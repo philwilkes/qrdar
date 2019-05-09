@@ -139,7 +139,7 @@ def singleTile(bright,
         if verbose: print '    extracting fiducial marker'
         code_ = code.copy()
         code = code.loc[(code.x.between(-.01, .18)) & 
-                        (code.y.between(-.01, .01)) &
+                        (code.y.between(-.1, .1)) &
                         (code.z.between(.06, .25))]
         code.x = code.x - code.x.min()
         code.z = code.z - code.z.min()
@@ -164,7 +164,7 @@ def singleTile(bright,
             scores[0, :] = calculate_score(img_1, codes)
             if print_figure: ax3.imshow(np.rot90(img_1, 1), cmap=plt.cm.Greys_r, interpolation='none')
         except Exception as err:
-            if verbose: print '    {}'.format(err)      
+            if verbose: print '\t{}'.format(err)      
         
         # method 2 .4 threshold
         try:
@@ -172,7 +172,7 @@ def singleTile(bright,
             scores[1, :] = calculate_score(img_2, codes)
             if print_figure: ax4.imshow(np.rot90(img_2, 1), cmap=plt.cm.Greys_r, interpolation='none')
         except Exception as err:
-            if verbose: print '    {}'.format(err)
+            if verbose: print '\t{}'.format(err)
             
         # method 2 .6 threshold
         try:
@@ -180,13 +180,14 @@ def singleTile(bright,
             scores[2, :] = calculate_score(img_3, codes)
             if print_figure: ax5.imshow(np.rot90(img_3, 1), cmap=plt.cm.Greys_r, interpolation='none') 
         except Exception as err:
-            if verbose: print '    {}'.format(err)
+            if verbose: print '\t{}'.format(err)
 
         number = np.unique(scores[np.where(scores[:, 1] == scores[:, 1].max())][:, 0])
+        print scores
         if len(number) > 1:
-            if verbose: print '    more than one code identified with same confidence:', number
-            if verbose: print '    value of -1 set for code in marker_df'
-            if verbose: print '    writing these to {}'.format(os.path.join(os.getcwd(), str(i) + '.log'))
+            if verbose: print '\tmore than one code identified with same confidence:', number
+            if verbose: print '\tvalue of -1 set for code in marker_df'
+            if verbose: print '\twriting these to {}'.format(os.path.join(os.getcwd(), str(i) + '.log'))
             read_code = [int(expected_codes[int(n)]) for n in number]
             confidence = scores[np.where(scores[:, 1] == scores[:, 1].max())][0, 1]
             with open(os.path.join(os.getcwd(), str(i) + '.log'), 'w') as fh:
@@ -281,8 +282,13 @@ def fromTiles(pc,
         if verbose: print 'processing targets:', i
             
         # locate stickers
-        corners = pc[pc.target_labels_ == i].groupby('sticker_labels_').mean()
+        corners = pc[pc.target_labels_ == i].groupby('sticker_labels_').mean().reset_index()
         marker_df.loc[i, ['x', 'y', 'z']] = corners[['x', 'y', 'z']].mean()
+        marker_df.at[i, 'c0'] = tuple(corners[['x', 'y', 'z']].loc[corners.index[0]].round(2))  
+        marker_df.at[i, 'c1'] = tuple(corners[['x', 'y', 'z']].loc[corners.index[1]].round(2))  
+        marker_df.at[i, 'c2'] = tuple(corners[['x', 'y', 'z']].loc[corners.index[2]].round(2))  
+        if len(corners) == 4:
+            marker_df.at[i, 'c3'] = tuple(corners[['x', 'y', 'z']].loc[corners.index[3]].round(2))  
         
         # extract tile with full-res data
         code = extract_tile(corners, tile_index, refl_tiles_w_braces)
@@ -305,23 +311,15 @@ def fromTiles(pc,
             ax5 = f.add_axes([.66, .5, .32, .49])
             [ax.axis('off') for ax in [ax1, ax2, ax3, ax4, ax5]]
         
-        # identify stickers
-        if verbose: print '    locating stickers'
+        # calculate rotation matrix and rmse
+        if verbose: print '    calculating rotation'
         idx, R, rmse = calculate_R(corners, markerTemplate)
-        sticker_centres = corners.loc[idx]
-        #sticker_centres, R, rmse = identify_stickers(code, markerTemplate, min_intensity, sticker_error)
         marker_df.loc[i, 'rmse'] = rmse
-        marker_df.at[i, 'c0'] = tuple(sticker_centres[['x', 'y', 'z']].loc[sticker_centres.index[0]].round(2))  
-        marker_df.at[i, 'c1'] = tuple(sticker_centres[['x', 'y', 'z']].loc[sticker_centres.index[1]].round(2))  
-        marker_df.at[i, 'c2'] = tuple(sticker_centres[['x', 'y', 'z']].loc[sticker_centres.index[2]].round(2))  
-        if len(sticker_centres) == 4:
-            marker_df.at[i, 'c3'] = tuple(sticker_centres[['x', 'y', 'z']].loc[sticker_centres.index[3]].round(2))  
-
         if verbose: print '    sticker rmse:', rmse
     
         # applying rotation matrix
         if verbose: print '    applying rotation matrix'
-        sticker_centres.loc[:, ['x', 'y', 'z']] = apply_rotation(R, sticker_centres)
+        corners.loc[:, ['x', 'y', 'z']] = apply_rotation(R, corners)
         code.loc[:, ['x', 'y', 'z']] = apply_rotation(R, code)
     
         # set up and plot point cloud
@@ -329,30 +327,22 @@ def fromTiles(pc,
             code.sort_values('y', inplace=True, ascending=False)
             ax1.scatter(code.x, code.z, c=code.intensity, edgecolor='none', s=1, cmap=plt.cm.Spectral_r)
             ax1.scatter(markerTemplate.x, markerTemplate.z, s=30, edgecolor='b', facecolor='none')
-            ax1.scatter(sticker_centres.x, sticker_centres.z, s=30, edgecolor='r', facecolor='none')
-            
-        if len(sticker_centres) == 0 or rmse > sticker_error:
-            if verbose: print "    could not find 3 bright targets that match the markerTemplate"
-            if print_figure: 
-                code.sort_values('y', inplace=True)
-                ax1.scatter(code.x, code.z, c=code.intensity, edgecolor='none', s=1)
-                if verbose: print '    saving images:', '{}.png'.format(i)
-                f.savefig('{}.png'.format(i))
-            continue    
+            ax1.scatter(corners.x, corners.z, s=30, edgecolor='r', facecolor='none')   
     
         # extracting fiducial marker
         # TODO: make this a function
+        # TODO: expose parameters 
         if verbose: print '    extracting fiducial marker'
         code_ = code.copy()
         code = code.loc[(code.x.between(-.01, .18)) & 
-                        (code.y.between(-.01, .01)) &
+                        (code.y.between(-.1, .1)) &
                         (code.z.between(.06, .25))]
         code.x = code.x - code.x.min()
         code.z = code.z - code.z.min()
         code.loc[:, 'xx'] = code.x // 0.032
         code.loc[:, 'zz'] = code.z // 0.032
     
-        # correct for non-flat target
+        # TODO: correct for non-flat target
         #code.loc[:, 'yt'] = code.groupby(['xx', 'zz']).y.transform(np.percentile, 75)
         #code.loc[:, 'yn'] = code.y - code.yt
         #code = code.loc[code.yn.between(-.01, .01)]
