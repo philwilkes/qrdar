@@ -33,7 +33,7 @@ def read(path, refl_field='intensity', refl_filter=0.):
     return pc
 
 
-def find(pc, W=50, rgb=False, verbose=False):
+def find(pc, sticker_size=.025, W=50, rgb=False, verbose=False):
     
     """
     Searches a point cloud for bright returns and clusters
@@ -47,6 +47,8 @@ def find(pc, W=50, rgb=False, verbose=False):
     ----------
     pc: pd.DataFrame with at least columns ['x', 'y', 'z']
         point cloud with bright points filtered
+    sticker_size: float (default 0.025)
+        diameter of stickers
     W: int (default 50)
         length of quadrant.
     rgb: boolean (default False)
@@ -64,20 +66,17 @@ def find(pc, W=50, rgb=False, verbose=False):
     pc.loc[:, 'yy'] = (pc.y // W) * W
         
     label_max = 0
-    target_centre = pd.DataFrame()
+    pc.loc[:, 'sticker_labels_'] = -1
     
     for tx, ty in pc.groupby(['xx', 'yy']).size().index:
         
         sq = pc[(pc.xx == tx) & (pc.yy == ty)]
         if verbose: print 'processing grid {} {} with length {}'.format(tx, ty, len(sq))
-        
-        if len(sq) >= 5: # if tiles contain too few points, skip them        
-            dbscan = DBSCAN(eps=.025, min_samples=3).fit(sq[['x', 'y', 'z']])
-            pc.loc[sq.index, 'sticker_labels_'] = dbscan.labels_ + label_max
-            label_max = pc.sticker_labels_.max() + 1 # iterative labelling hence 
-        
-        else: 
-            pc.loc[sq.index, 'sticker_labels_'] = -1
+               
+        dbscan = DBSCAN(eps=sticker_size * 1.1, min_samples=2).fit(sq[['x', 'y', 'z']])
+        idx = np.where(dbscan.labels_ > -1)[0]
+        pc.loc[sq.loc[sq.index[idx]].index, 'sticker_labels_'] = dbscan.labels_[idx] + label_max
+        label_max = pc.sticker_labels_.max() + 1 # iterative labelling hence 
             
     pc = pc[pc.sticker_labels_ != -1] # remove outlier points
             
