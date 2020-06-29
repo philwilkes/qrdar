@@ -5,7 +5,12 @@ import pandas as pd
 
 def read_pcd(fp):
 
-    with open(fp) as pcd:
+    if (sys.version_info > (3, 0)):
+        open_file = open(fp, encoding='ISO-8859-1')
+    else:
+        open_file = open(fp)
+
+    with open_file as pcd:
 
         length = 0
 
@@ -32,9 +37,10 @@ def read_pcd(fp):
 def write_pcd(df, path, binary=True):
 
     columns = ['x', 'y', 'z', 'intensity']
+    df.rename(columns={'scalar_intensity':'intensity'}, inplace=True)
     if 'intensity' not in df.columns: columns = columns[:3]
 
-    with open(path, 'wb') as pcd:
+    with open(path, 'w') as pcd:
 
         pcd.write('# .PCD v0.7 - Point Cloud Data file format\n')
         pcd.write('VERSION 0.7\n')
@@ -46,10 +52,7 @@ def write_pcd(df, path, binary=True):
         pcd.write('HEIGHT 1\n')
         pcd.write('VIEWPOINT 0 0 0 1 0 0 0\n')
         pcd.write('POINTS {}\n'.format(len(df)))
-        if binary:
-            pcd.write('DATA binary\n')
-            df[columns].values.astype('f4').tofile(pcd)
-        else:
-            pcd.write('DATA ascii\n')
-            df[columns].to_csv(pcd, sep=' ', index=False, header=False)
+        pcd.write('DATA binary\n')
 
+    with open(path, 'ab') as pcd:
+        df[columns].values.astype('f4').tofile(pcd)

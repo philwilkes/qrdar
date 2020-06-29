@@ -1,10 +1,16 @@
 import pandas as pd
 import numpy as np
+import sys
 
-def read_ply(path):
+def read_ply(fp):
     
-    with open(path) as ply:
-    
+    if (sys.version_info > (3, 0)):
+        open_file = open(fp, encoding='ISO-8859-1')
+    else:
+        open_file = open(fp)
+
+    with open_file as ply:
+ 
         length = 0
         prop = []
         dtype_map = {'float': 'f4', 'uchar': 'B', 'int':'i'}
@@ -60,4 +66,5 @@ def write_ply(output_name, pc):
             ply.write("property float {}\n".format(col))
         ply.write("end_header\n")
 
+    with open(output_name, 'ab') as ply:
         ply.write(pc[cols].to_records(index=False).tobytes()) 
