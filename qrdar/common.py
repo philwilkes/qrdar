@@ -10,6 +10,11 @@ from scipy.optimize import curve_fit
 import qrdar
 from qrdar.io.pcd_io import *
 
+import matplotlib.pyplot as plt
+
+from skimage.filters import threshold_otsu
+
+
 # a bit of hack for Python 2.x
 __dir__ = os.path.split(os.path.abspath(qrdar.__file__))[0]
 
@@ -139,22 +144,12 @@ def expected_distances(template):
     tdM = np.ma.masked_equal(tdM, 0)
     return np.unique(tdM)
 
-def ensure_square_arr(df, var):
-    
-    X, Y = np.meshgrid(np.arange(0, 6), np.arange(0, 6))
-    x_df = pd.DataFrame(np.vstack([Y.flatten(), X.flatten()]).T, columns=['xx', 'zz'])
-        
-    b_df = df.groupby(['xx', 'zz'])[var].mean().reset_index()
-    img = pd.merge(x_df, b_df, on=['xx', 'zz'], how='left')
-    img.loc[np.isnan(img[var]), var] = 0
-    img = img[var].values.reshape(6, 6)
-    img = img * np.pad(np.ones(np.array(img.shape) - 2), 1, 'constant') # force border to be black
-    return img
-
 def load_codes(dic):
 
     if dic == 'aruco_mip_16h3':
         return np.load(os.path.join(__dir__, 'aruco_mip_16h3_dict.npy'))
+    elif dic == 'aruco_mip_36h12':
+        return np.load(os.path.join(__dir__, 'aruco_mip_36h12_dict.npy'))
     
 def template():
 
@@ -186,17 +181,21 @@ def method_1(code):
     
     code.loc[:, 'I_mean'] = code.groupby(['xx', 'zz']).intensity.transform(np.mean)
 
+#     for p in np.arange(5, 50, 5):
+#         try:
+#             C = calculate_cutoff(code.I_mean, p)
+#             if code.I_mean.min() < C < code.I_mean.max():
+#                 break
+#         except:
+#             print('non-optimal')
+#             C = 0 # required if optimal parameters are not found
 
-    for p in np.arange(5, 50, 5):
-        try:
-            C = calculate_cutoff(code.I_mean, p)
-            if code.I_mean.min() < C < code.I_mean.max():
-                break
-        except:
-            C = 0 # required if optimal parameters are not found
+#     print ('C:', C)
+    
+    thresh = threshold_otsu(code.intensity)
 
-    code.loc[:, 'bw1'] = np.where(code.I_mean < C, 0, 1)
-    img_1 = ensure_square_arr(code, 'bw1')
+    code.loc[:, 'bw1'] = np.where(code.I_mean < thresh, 0, 1)
+    img_1 = ensure_square_arr(code, 'bw1', len(code.xx.unique()) - 1)
 
     return img_1
 
@@ -218,6 +217,19 @@ def method_2(code, threshold):
     code.loc[:, 'P'] = code.LN / code.N
 
     code.loc[:, 'bw2'] = code.P.apply(lambda p: 0 if p > threshold else 1)
-    img = ensure_square_arr(code, 'bw2')
+    img = ensure_square_arr(code, 'bw2', len(code.xx.unique()) - 1)
 
+    return img
+
+
+def ensure_square_arr(df, var, N):
+    
+    X, Y = np.meshgrid(np.arange(0, N), np.arange(0, N))
+    x_df = pd.DataFrame(np.vstack([Y.flatten(), X.flatten()]).T, columns=['xx', 'zz'])
+        
+    b_df = df.groupby(['xx', 'zz'])[var].mean().reset_index()
+    img = pd.merge(x_df, b_df, on=['xx', 'zz'], how='left')
+    img.loc[np.isnan(img[var]), var] = 0
+    img = img[var].values.reshape(N, N)
+    img = img * np.pad(np.ones(np.array(img.shape) - 2), 1, 'constant') # force border to be black
     return img
