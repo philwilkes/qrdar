@@ -26,14 +26,17 @@ def extractFeatures(marker_df, tile_index, extract_tiles_w_braces, out_dir, verb
     
     for ix, row in marker_df.iterrows():
         
-        if verbose: print 'extracting feature:', row.code
+        if verbose: print('extracting feature:', row.code)
         corners = pd.DataFrame(columns=['x', 'y', 'z'])
         for i, c in enumerate([row.c0, row.c1, row.c2, row.c3]):
+            if isinstance(c, str): 
+                c = tuple([float(i) for i in c[1:-1].split(',')])
             if i == 0 and isinstance(c, float): break
             if i == 3 and isinstance(c, float): continue
             corners.loc[i, ['x', 'y', 'z']] = list(c)
         if len(corners) == 0: continue
-        _extract_feature(row.code, corners, tile_index, extract_tiles_w_braces, out_dir, verbose)
+        v = _extract_feature(row.code, corners, tile_index, extract_tiles_w_braces, out_dir, verbose)
+#         return v
 
 def _extract_feature(code, corners, tile_index, tile_path, out_dir, verbose):
     
@@ -50,7 +53,7 @@ def _extract_feature(code, corners, tile_index, tile_path, out_dir, verbose):
                                               np.isclose(cnr.x, tile_index.x, atol=10)))].tile.values
         for tile_name in tile_names:
             if tile_name in all_tiles: continue
-            if verbose: print '        processing tile:', tile_name
+            if verbose: print('        processing tile:', tile_name)
             all_tiles.append(tile_name)
             tile = read_pcd(tile_path.format(tile_name))
             tile = tile.loc[(tile.x.between(corners.x.min() - 3, corners.x.max() + 3)) & 
@@ -63,18 +66,24 @@ def _extract_feature(code, corners, tile_index, tile_path, out_dir, verbose):
             tile = tile[(tile.z.between(0, 4)) &
                         (tile.x.between(-1.5, 1.5)) &
                         (tile.y.between(-2, 2))]
-            voxel = voxel.append(tile)       
-            
-    if verbose: print '    running DBSCAN on voxel'
-    dbscan = DBSCAN(eps=.05, min_samples=25).fit(voxel[['x', 'y', 'z']])
+            voxel = voxel.append(tile)    
+#             if verbose: print 'number of points extracted before clipping:', len(voxel)
+    
+#     return voxel
+    if verbose: print('    total number of points for voxel:', len(voxel))
+    if verbose: print('    running DBSCAN on voxel')
+    dbscan = DBSCAN(eps=.1, min_samples=25).fit(voxel[['x', 'y', 'z']])
+    print(dbscan.labels_)
     voxel.loc[:, 'labels_'] = dbscan.labels_
     voxel = voxel[voxel.labels_ != -1] 
     voxel[['x', 'y', 'z']] = apply_rotation(np.linalg.inv(R), voxel)
+    if verbose: print('    DBSCAN completed')
     
     v = voxel.groupby('labels_').agg([min, max, 'count'])
     stem_cluster = []
     inc = 0
     
+    if verbose: print('    incrementing over voxel')
     while len(stem_cluster) == 0:
         stem_cluster = v[(corners.x.min() >= v['x']['min'] - inc) & 
                          (corners.x.max() <= v['x']['max'] + inc) &
@@ -82,6 +91,8 @@ def _extract_feature(code, corners, tile_index, tile_path, out_dir, verbose):
                          (corners.y.max() <= v['y']['max'] + inc)].index
         inc += .01
     
-    print 'saving feature to:', os.path.join(out_dir, 'cluster_{}.pcd'.format(code))
+    if verbose: print('    finished incremeting')
+    
+    print('saving feature to:', os.path.join(out_dir, 'cluster_{}.pcd'.format(code)))
     write_pcd(voxel[voxel.labels_.isin(stem_cluster)], 
               os.path.join(out_dir, 'cluster_{}.pcd'.format(code)))  
