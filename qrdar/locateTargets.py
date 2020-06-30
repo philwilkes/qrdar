@@ -14,6 +14,8 @@ def locateTargets(pc, markerTemplate=None, min_intensity=0, rmse_threshold=.15,
     ----------
     potential_dots: pd.DataFrame
         sticker centres
+    check_z: boolean (default True)
+        assumes targets are upright and removes otherwise
     verbose: boolean (default False)
         print something
 
@@ -36,7 +38,7 @@ def locateTargets(pc, markerTemplate=None, min_intensity=0, rmse_threshold=.15,
     dbscan = DBSCAN(eps=.4, min_samples=3).fit(potential_dots[['x', 'y', 'z']])
     potential_dots.loc[:, 'target_labels_'] = dbscan.labels_
     potential_dots = potential_dots[potential_dots.target_labels_ != -1]
-    print('number of potential targets:', len(potential_dots.target_labels_.unique()))
+    if verbose: print('number of potential targets:', len(potential_dots.target_labels_.unique()))
     
     # check if targets are too close
     while np.any(~potential_dots.target_labels_.value_counts().isin([3, 4])):
@@ -45,14 +47,14 @@ def locateTargets(pc, markerTemplate=None, min_intensity=0, rmse_threshold=.15,
             
             remove = False
             bright_spots_tmp = potential_dots[potential_dots.target_labels_ == labels]
-            print('processing: {} (number of stickers {})'.format(labels, len(bright_spots_tmp)))
+            if verbose: print('processing: {} (number of stickers {})'.format(labels, len(bright_spots_tmp)))
             
             # remove stickers that don't match ~ distance between stickers
             remove_idx = distanceFilter(bright_spots_tmp, markerTemplate)
             potential_dots = potential_dots.loc[~potential_dots.index.isin(remove_idx)]
             bright_spots_tmp = bright_spots_tmp.loc[~bright_spots_tmp.index.isin(remove_idx)]
             if len(remove_idx) > 0:
-                print("\tstickers removed for wrong distance:", len(remove_idx))
+                if verbose: print("\tstickers removed for wrong distance:", len(remove_idx))
             
             if len(bright_spots_tmp) < 3:
                 reason = 'less than 3'
