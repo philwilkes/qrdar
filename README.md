@@ -1,6 +1,7 @@
 # qrDAR
 [![GPLv3 license](https://img.shields.io/badge/License-GPLv3-blue.svg)](http://perso.crans.org/besson/LICENSE.html)
 [![made-with-python](https://img.shields.io/badge/Made%20with-Python-1f425f.svg)](https://www.python.org/)
+[![DOI](https://zenodo.org/badge/158681566.svg)](https://zenodo.org/badge/latestdoi/158681566)
 
 This is a method for using fiducial markers (akin to QR codes) to identify the location of tagged features in laser scans.
 
