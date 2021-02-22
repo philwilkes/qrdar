@@ -3,6 +3,7 @@ import numpy as np
 
 from qrdar.common import *
 from qrdar.io.pcd_io import *
+from qrdar.io.ply_io import *
 
 def extractFeatures(marker_df, tile_index, extract_tiles_w_braces, out_dir, verbose=True):
     
@@ -55,7 +56,7 @@ def _extract_feature(code, corners, tile_index, tile_path, out_dir, verbose):
             if tile_name in all_tiles: continue
             if verbose: print('        processing tile:', tile_name)
             all_tiles.append(tile_name)
-            tile = read_pcd(tile_path.format(tile_name))
+            tile = read_pcd(tile_path.format(tile_name)) if tile_path.endswith('.pcd') else read_ply(tile_path.format(tile_name))
             tile = tile.loc[(tile.x.between(corners.x.min() - 3, corners.x.max() + 3)) & 
                             (tile.y.between(corners.y.min() - 3, corners.y.max() + 3)) &
                             (tile.z.between(corners.z.min() - 2, corners.z.max() + 4))]
