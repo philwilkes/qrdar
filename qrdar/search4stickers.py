@@ -63,8 +63,6 @@ def find(pc, sticker_size=.025, W=50, rgb=False, verbose=False):
         number
     """
 
-
-    W = 50
     pc.loc[:, 'xx'] = (pc.x // W) * W
     pc.loc[:, 'yy'] = (pc.y // W) * W
     label_max = 0
@@ -73,6 +71,8 @@ def find(pc, sticker_size=.025, W=50, rgb=False, verbose=False):
     for tx, ty in pc.groupby(['xx', 'yy']).size().index:
        
         sq = pc[(pc.xx == tx) & (pc.yy == ty)]
+        if len(sq) > 1e5: 
+            raise Exception('more than 1 million points in a tile, reduce W'))
         if verbose: print('processing grid {} {} with length {}'.format(tx, ty, len(sq)))
               
         dbscan = DBSCAN(eps=sticker_size * 1.1, min_samples=2).fit(sq[['x', 'y', 'z']])
