@@ -26,6 +26,7 @@ def readCodes(bright,
               sticker_error =.015,
               code_dims={'edge':.03, 'x':(-.01, .18), 'y':(-.05, .05), 'z':(.06, .25)},
               return_marker_df=True,
+              save_pc=False,
               verbose=True
               ):
 
@@ -64,6 +65,8 @@ def readCodes(bright,
         dimensions of the code where edge is the edge length of the qr code squares
         and x, y and z are the corner locations. Defaults are for the standard 
         aruco_mip_16h3 dictionary of codes.
+    save_pc: boolean (default False)
+        save point clouds of markers
     verbose: boolean (default True)
         print something
     
@@ -102,8 +105,6 @@ def readCodes(bright,
     
     for i, target in enumerate(np.sort(bright.target_labels_.unique().astype(int))):
         
-#         if i == 5: break
-
         if verbose: print('processing targets:', target)
             
         # locate stickers
@@ -143,7 +144,7 @@ def readCodes(bright,
             marker_df.at[target, 'c3'] = tuple(sticker_centres[['x', 'y', 'z']].loc[sticker_centres.index[3]].round(2))  
 
         if verbose: print('    sticker rmse:', rmse)
-    
+
         # applying rotation matrix
         if verbose: print('    applying rotation matrix')
         sticker_centres.loc[:, ['x', 'y', 'z']] = apply_rotation(R, sticker_centres)
@@ -172,11 +173,17 @@ def readCodes(bright,
                         (code.y.between(*code_dims['y'])) &
                         (code.z.between(*code_dims['z']))]
         xmin, zmin = code.x.min(), code.z.min()
+        # save pc
+        if save_pc:
+            if verbose: print('    saving point cloud to: {}.ply'.format(i))
+            write_ply('{}.ply'.format(i), apply_rotation(np.linalg.inv(R), code.copy())) 
+            np.savetxt('{}.rot.txt'.format(i), R)   
         code.x = code.x - code.x.min()
         code.z = code.z - code.z.min()
         code.loc[:, 'xx'] = code.x // code_dims['edge']
         code.loc[:, 'zz'] = code.z // code_dims['edge']
     
+
         # TODO: correct for non-flat target
         #code.loc[:, 'yt'] = code.groupby(['xx', 'zz']).y.transform(np.percentile, 75)
         #code.loc[:, 'yn'] = code.y - code.yt
@@ -238,6 +245,7 @@ def readCodes(bright,
 
         marker_df.loc[target, 'code'] = read_code
         marker_df.loc[target, 'confidence'] = confidence
+
     
     if return_marker_df:
         return marker_df    
